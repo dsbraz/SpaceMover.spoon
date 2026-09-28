@@ -16,6 +16,11 @@ local fake = {
   alert = { show = function(message) alert = message end },
   window = { focusedWindow = function() return focused end, get = function() return window end },
   spaces = {
+    data_managedDisplaySpaces = function() return {
+      { Spaces = { { ManagedSpaceID = 10 }, { ManagedSpaceID = 99 }, { ManagedSpaceID = 20 } } },
+      { Spaces = { { ManagedSpaceID = 30 } } },
+      { Spaces = { { ManagedSpaceID = 40 }, { ManagedSpaceID = 10 } } },
+    } end,
     spacesForScreen = function(s) assert(s == screen); return { 10, 99, 20 } end,
     spaceType = function(id) return id == 99 and "fullscreen" or "user" end,
     windowSpaces = function(id) return membership[id] end,
@@ -40,7 +45,10 @@ local mover = assert(loadfile(source .. "init.lua", "t", setmetatable({ hs = fak
 assert(not mover:moveFocusedTo(1) and not lastMove, "no focused window")
 focused = window
 assert(not mover:moveFocusedTo(0) and not lastMove, "invalid number")
-assert(not mover:moveFocusedTo(3) and not lastMove, "missing desktop")
+assert(not mover:moveFocusedTo(5) and not lastMove, "missing desktop")
+local desktops = mover:desktopSpaces()
+assert(table.concat(desktops, ",") == "10,20,30,40", "global display order, skip fullscreen, deduplicate shared Spaces")
+assert(table.concat(mover:desktopSpaces(screen), ",") == "10,20", "explicit screen query remains supported")
 fullscreen = true
 assert(not mover:moveFocusedTo(2) and not lastMove, "fullscreen guard")
 fullscreen = false
@@ -66,6 +74,12 @@ moveOK, silentFailure, alert = true, true, nil
 assert(mover:moveFocusedTo(1))
 pending()
 assert(alert, "detect false-positive API success")
+moveOK, silentFailure, alert = true, false, nil
+assert(mover:moveFocusedTo(3), "cross-monitor destination is accepted")
+assert(lastMove[1] == 42 and lastMove[2] == 30, "exact window sent to second display")
+pending()
+assert(membership[42][1] == 30 and not alert, "cross-monitor membership confirmed")
+assert(membership[43][1] == 10, "other windows remain untouched")
 mover:bindHotkeys()
 local old = mover._hotkeys[1]
 assert(#mover:status().bindings == 9, "nine default bindings")

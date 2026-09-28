@@ -2,7 +2,7 @@ local obj = {}
 obj.__index = obj
 
 obj.name = "SpaceMover"
-obj.version = "0.1.0"
+obj.version = "0.2.0"
 obj.author = "Daniel Braz"
 obj.license = "MIT"
 obj.logger = hs.logger.new("SpaceMover")
@@ -16,8 +16,24 @@ function obj:_fail(message)
   return false, message
 end
 
--- Number only ordinary desktops, in Mission Control order, on this screen.
+-- Without a screen, number ordinary desktops across all managed displays.
+-- Never iterate allSpaces() with pairs: UUID hash order is not desktop order.
 function obj:desktopSpaces(screen)
+  if screen == nil then
+    local displays, reason = hs.spaces.data_managedDisplaySpaces()
+    if not displays then return nil, reason end
+    local desktops, seen = {}, {}
+    for _, display in ipairs(displays) do
+      for _, space in ipairs(display.Spaces or {}) do
+        local id = space.ManagedSpaceID or space.id64
+        if id and not seen[id] and hs.spaces.spaceType(id) == "user" then
+          desktops[#desktops + 1] = id
+          seen[id] = true
+        end
+      end
+    end
+    return desktops
+  end
   local spaces, reason = hs.spaces.spacesForScreen(screen)
   if not spaces then return nil, reason end
   local desktops = {}
@@ -50,11 +66,11 @@ function obj:moveFocusedTo(index)
     if not current or #current ~= 1 or hs.spaces.spaceType(current[1]) ~= "user" then
       return self:_fail("A janela precisa estar em um único desktop comum.")
     end
-    local desktops, spaceError = self:desktopSpaces(screen)
+    local desktops, spaceError = self:desktopSpaces()
     if not desktops then return self:_fail(tostring(spaceError)) end
     local target = desktops[index]
     if not target then
-      return self:_fail("Desktop " .. index .. " não existe neste monitor.")
+      return self:_fail("Desktop " .. index .. " não existe nos monitores conectados.")
     end
     if current[1] == target then return true end
     if self._tasks[id] then return self:_fail("Esta janela já está sendo movida.") end

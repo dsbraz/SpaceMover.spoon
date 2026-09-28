@@ -22,7 +22,7 @@ requires Apple's Command Line Tools (`xcode-select --install`) or Xcode.
 ## Behavior
 
 - **Hyper+1…9** (`cmd+ctrl+alt`, without Shift) sends the exact focused window to that desktop.
-- Numbering follows Mission Control order on the window's monitor, excluding fullscreen Spaces.
+- Numbering follows the global managed-display order and desktop order within each display, excluding fullscreen Spaces. A destination may be on another monitor; numbering does not restart on the focused monitor.
 - The active desktop stays in place; other windows of the application stay where they are.
 - Missing desktops are reported, never created.
 - Fullscreen windows and windows assigned to multiple Spaces are rejected.
@@ -40,7 +40,8 @@ These are private macOS APIs, so compatibility can vary between releases.
 
 ```lua
 spoon.SpaceMover:moveFocusedTo(3) -- true if submitted/already there; false, reason on failure
-spoon.SpaceMover:desktopSpaces(hs.screen.mainScreen()) -- ordered desktop IDs
+spoon.SpaceMover:desktopSpaces() -- global ordered desktop IDs
+spoon.SpaceMover:desktopSpaces(hs.screen.mainScreen()) -- optional screen-only query
 spoon.SpaceMover:status() -- version and enabled bindings
 spoon.SpaceMover:stop() -- delete bindings; already submitted moves finish normally
 ```
@@ -69,5 +70,8 @@ dofile(hs.configdir .. "/Spoons/SpaceMover.spoon/tests.lua")
 
 Locally verified on macOS 27 with Hammerspoon 1.1.1: native movement to another
 desktop, unchanged active desktop, and confirmed restoration to the source.
-Multiple-monitor numbering is covered by screen-specific selection in the code;
-physical multi-monitor behavior still requires validation on a multi-monitor setup.
+Isolated tests cover global numbering across displays, fullscreen exclusion,
+shared-Space deduplication and exact-window cross-monitor target selection.
+Version 0.2.0 was also checked with a real Finder window moving from the main
+external display to the portrait display: both Space membership and destination
+screen matched, and the active Space on every monitor remained unchanged.
