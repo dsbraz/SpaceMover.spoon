@@ -27,6 +27,8 @@ requires Apple's Command Line Tools (`xcode-select --install`) or Xcode.
 - Missing desktops are reported, never created.
 - Fullscreen windows and windows assigned to multiple Spaces are rejected.
 - Movement is confirmed by the native helper (up to 1.5 seconds) and checked again by Lua; a failed confirmation produces an alert.
+- Position is captured before movement and restored on the same display. Across displays, relative placement is preserved within the destination's usable area; size is preserved unless the destination is smaller.
+- After Space confirmation, placement is checked after a short settling delay, with at most three immediate frame corrections. Disconnected displays or applications that refuse the requested geometry produce an alert instead of silently reporting success.
 
 For stable numbering, disable “Automatically rearrange Spaces based on most recent use”
 in macOS Mission Control settings. Separate Spaces per display is recommended.
@@ -71,7 +73,9 @@ dofile(hs.configdir .. "/Spoons/SpaceMover.spoon/tests.lua")
 Locally verified on macOS 27 with Hammerspoon 1.1.1: native movement to another
 desktop, unchanged active desktop, and confirmed restoration to the source.
 Isolated tests cover global numbering across displays, fullscreen exclusion,
-shared-Space deduplication and exact-window cross-monitor target selection.
+shared-Space deduplication, exact-window cross-monitor target selection, negative
+display origins, portrait-screen resizing, same-screen placement restoration,
+refused geometry and disconnected destinations.
 Version 0.2.0 was also checked with a real Finder window moving from the main
 external display to the portrait display: both Space membership and destination
 screen matched, and the active Space on every monitor remained unchanged.

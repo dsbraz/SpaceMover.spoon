@@ -2,7 +2,7 @@ local obj = {}
 obj.__index = obj
 
 obj.name = "SpaceMover"
-obj.version = "0.2.0"
+obj.version = "0.3.0"
 obj.author = "Daniel Braz"
 obj.license = "MIT"
 obj.logger = hs.logger.new("SpaceMover")
@@ -45,6 +45,70 @@ function obj:desktopSpaces(screen)
   return desktops
 end
 
+local function containsSpace(screen, target)
+  for _, space in ipairs(hs.spaces.spacesForScreen(screen) or {}) do
+    if space == target then return true end
+  end
+  return false
+end
+
+-- Preserve size where possible and relative placement in the available travel
+-- area. Screen origins can be negative or vertically offset.
+function obj:destinationFrame(frame, source, destination)
+  local w, h = math.min(frame.w, destination.w), math.min(frame.h, destination.h)
+  local function position(value, origin, extent, size, nextOrigin, nextExtent, nextSize)
+    local ratio = extent > size and (value - origin) / (extent - size) or 0.5
+    return nextOrigin + math.max(0, math.min(1, ratio)) * (nextExtent - nextSize)
+  end
+  return {
+    x = position(frame.x, source.x, source.w, frame.w, destination.x, destination.w, w),
+    y = position(frame.y, source.y, source.h, frame.h, destination.y, destination.h, h),
+    w = w, h = h,
+  }
+end
+
+-- Space membership can settle before WindowServer finishes placing a window.
+-- Keep the per-window lock until geometry has also settled; never poll forever.
+function obj:_settle(window, id, target, targetUUID, original, sourceFrame)
+  local attempts = 0
+  local function finish(message)
+    self._tasks[id] = nil
+    if message then self:_fail(message) end
+  end
+  local step
+  step = function()
+    local ok, reason = pcall(function()
+      if window:id() ~= id then return finish("A janela foi fechada durante o movimento.") end
+      local actual = hs.spaces.windowSpaces(id)
+      if not actual or #actual ~= 1 or actual[1] ~= target then
+        return finish("O macOS não confirmou o desktop de destino.")
+      end
+      local destination
+      for _, candidate in ipairs(hs.screen.allScreens()) do
+        if candidate:getUUID() == targetUUID then destination = candidate; break end
+      end
+      if not destination or not containsSpace(destination, target) then
+        return finish("O monitor de destino mudou durante o movimento.")
+      end
+      local wanted = self:destinationFrame(original, sourceFrame, destination:frame())
+      local frame = window:frame()
+      local matches = true
+      for _, key in ipairs({ "x", "y", "w", "h" }) do
+        if math.abs(frame[key] - wanted[key]) > 2 then matches = false end
+      end
+      if matches then return finish() end
+      if attempts >= 3 then
+        return finish("O aplicativo não confirmou a posição/tamanho no monitor de destino.")
+      end
+      attempts = attempts + 1
+      window:setFrame(wanted, 0)
+      self._tasks[id] = hs.timer.doAfter(0.15, step)
+    end)
+    if not ok then finish(tostring(reason)) end
+  end
+  self._tasks[id] = hs.timer.doAfter(0.15, step)
+end
+
 function obj:moveFocusedTo(index)
   -- Capture the exact focused window before querying Spaces or showing alerts.
   local window = hs.window.focusedWindow()
@@ -74,20 +138,32 @@ function obj:moveFocusedTo(index)
     end
     if current[1] == target then return true end
     if self._tasks[id] then return self:_fail("Esta janela já está sendo movida.") end
+    local destination = containsSpace(screen, target) and screen or nil
+    if not destination then
+      for _, candidate in ipairs(hs.screen.allScreens()) do
+        if containsSpace(candidate, target) then destination = candidate; break end
+      end
+    end
+    if not destination then return self:_fail("Monitor de destino indisponível.") end
+    local targetUUID = destination:getUUID()
+    local original, sourceFrame = window:frame(), screen:frame()
     local helper = spoonPath .. "native/space-mover"
     if not hs.fs.attributes(helper) then
       return self:_fail("Execute make na pasta do SpaceMover.spoon antes de usar.")
     end
     local task = hs.task.new(helper, function(code, _, stderr)
-      self._tasks[id] = nil
       if code ~= 0 then
+        self._tasks[id] = nil
         self:_fail("Falha no movimento: " .. tostring(stderr))
         return
       end
       local actual = hs.spaces.windowSpaces(id)
       if not actual or #actual ~= 1 or actual[1] ~= target then
+        self._tasks[id] = nil
         self:_fail("O macOS não confirmou o movimento para o desktop " .. index .. ".")
+        return
       end
+      self:_settle(window, id, target, targetUUID, original, sourceFrame)
     end, { tostring(id), tostring(target) })
     if not task then return self:_fail("Não foi possível iniciar o suporte nativo.") end
     self._tasks[id] = task
